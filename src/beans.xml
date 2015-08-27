@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:context="http://www.springframework.org/schema/context"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+    http://www.springframework.org/schema/beans/spring-beans-2.5.xsd
+    http://www.springframework.org/schema/context
+    http://www.springframework.org/schema/context/spring-context-2.5.xsd">
+    
+    
+    <!--  !!!!!!!!!!!!!!!以下最最简单的JMS的实现方式配置 !!!!!!!!!!!!!!!!!  -->
+    <!-- 配置JMS连接工厂 -->
+    <bean id="connectionFactory" class="org.apache.activemq.spring.ActiveMQConnectionFactory">
+        <property name="brokerURL" value="tcp://localhost:61616"/>
+    </bean>
+    <!-- 配置JMS模版 -->
+    <bean id="jmsTemplate" class="org.springframework.jms.core.JmsTemplate">
+        <property name="connectionFactory" ref="connectionFactory"/>
+    </bean>
+    <!-- 
+    	在ActiveMQ中实现了两种类型的Destination，
+    	一个是点对点的ActiveMQQueue，另一个就是支持订阅/发布模式的ActiveMQTopic。
+    	在定义这两种类型的Destination时我们都可以通过一个name属性来进行构造
+     -->
+    <!-- 发送消息的队列目的地,点对点方式 -->
+    <bean id="destination" class="org.apache.activemq.command.ActiveMQQueue">
+        <!-- Set the Queue Name -->
+        <constructor-arg index="0" value="HelloWorldQueue"/>
+    </bean>
+    
+   
+	
+	
+	
+	<!--
+		 在Spring整合JMS的应用中我们在定义消息监听器的时候一共可以定义三种类型的消息监听器，
+		 分别是MessageListener、SessionAwareMessageListener和MessageListenerAdapter。
+		 ①MessageListener是最原始的消息监听器，它是JMS规范中定义的一个接口。其中定义了一个用于处理接收到的消息的onMessage方法，该方法只接收一个Message参数。MessageListener的设计只是纯粹用来接收消息的
+		 ②SessionAwareMessageListener是Spring为我们提供的，它不是标准的JMS MessageListener。这个接口可以用来回复消息
+		 ③MessageListenerAdapter的主要作用是将接收到的消息进行类型转换，然后通过反射的形式把它交给一个普通的Java类进行处理。
+		 	 MessageListenerAdapter会把接收到的消息做如下转换：
+       		 TextMessage转换为String对象；
+      		 BytesMessage转换为byte数组；
+       		 MapMessage转换为Map对象；
+      	 	 ObjectMessage转换为对应的Serializable对象。
+	  -->
+	  
+	  
+	<!--  
+		以下最消息监听机制最简单的配置方式,使用MessageListener来监听信息.. 
+		经过测试一条MQ只能由一个Lister监听
+	-->
+	<bean id="lister" class="hxk.messageLister.HelloWorldLister"></bean>
+	<!-- 消息监听容器 -->  
+	<bean id="jmsContainer"  class="org.springframework.jms.listener.DefaultMessageListenerContainer">  
+	    <property name="connectionFactory" ref="connectionFactory" />  
+	    <property name="destination" ref="destination" />  
+	    <property name="messageListener" ref="lister" />  
+	</bean>  
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	<!--
+		测试 SessionAwareMessageListener的配置
+	 -->
+    <bean id="sessionAwareQueueDestination" class="org.apache.activemq.command.ActiveMQQueue">  
+        <constructor-arg>  
+            <value>sessionAwareQueue</value>  
+        </constructor-arg>  
+    </bean>  
+	<!-- bean的注入 -->
+	<bean id="sessionAwareLister" class="hxk.messageLister.SessionAwareLister">
+		<!--注入回复方MQ的指向  -->
+		<property name="destination" ref="destination"></property>		
+	</bean>
+	<!-- 消息监听容器 -->  
+	<bean id="sessionAwareListerContainer"  class="org.springframework.jms.listener.DefaultMessageListenerContainer">  
+	    <property name="connectionFactory" ref="connectionFactory" />  
+	    <property name="destination" ref="sessionAwareQueueDestination" />  
+	    <property name="messageListener" ref="sessionAwareLister" />  
+	</bean>  
+	
+	
+	
+	
+	<!-- 
+		测试MessageListenerAdapter的配置
+	 -->
+    <bean id="adapterDestination" class="org.apache.activemq.command.ActiveMQQueue">  
+        <constructor-arg>  
+            <value>adapterQueue</value>  
+        </constructor-arg>  
+    </bean>  
+	
+	<!-- 消息监听适配器 -->  
+    <bean id="messageListenerAdapter" class="org.springframework.jms.listener.adapter.MessageListenerAdapter">  
+        <property name="delegate">  
+        	<!--指定目标处理类  -->
+            <bean class="hxk.messageLister.AdapterConsuleLister"/>  
+        </property>  
+        <!--指定处理类的具体某个方法..缺省为handleMessage这个方法  -->
+        <property name="defaultListenerMethod" value="receiveMessage"/>  
+        <!-- 通过其defaultResponseDestination属性指定其默认的回复目的地 -->
+	    <property name="defaultResponseDestination" ref="responseDestination"></property>
+    </bean>  
+	<!-- 消息监听容器 -->  
+	<bean id="adapterContainer"  class="org.springframework.jms.listener.DefaultMessageListenerContainer">  
+	    <property name="connectionFactory" ref="connectionFactory" />  
+	    <property name="destination" ref="adapterDestination" />  
+	    <property name="messageListener" ref="messageListenerAdapter" />  
+	</bean>  
+	
+	
+	
+	
+	<!--
+		下面这一块是设置上面adapterQueue的回复MQ(message.setJMSReplyTo(response);)
+	  -->
+	<!--配置一个MQ用来做adapterQueue的信息返回接收-->  
+    <bean id="responseDestination" class="org.apache.activemq.command.ActiveMQQueue">  
+        <constructor-arg>  
+            <value>responseQueue</value>  
+        </constructor-arg>  
+    </bean>  
+	<!-- responseQueue对应的监听器 -->  
+	<bean id="responseQueueListener" class="hxk.messageLister.ResponseQueueListener"/>  
+	<!-- responseQueue对应的监听容器 -->  
+	<bean id="responseQueueMessageListenerContainer" class="org.springframework.jms.listener.DefaultMessageListenerContainer">  
+	    <property name="connectionFactory" ref="connectionFactory"/>  
+	    <property name="destination" ref="responseDestination"/>  
+	    <property name="messageListener" ref="responseQueueListener"/>  
+	</bean>  
+	
+	
+	
+	
+	<!-- 
+		测试转换器的配置
+	 -->
+    <bean id="convertDestination" class="org.apache.activemq.command.ActiveMQQueue">  
+        <constructor-arg>  
+            <value>convertQueue</value>  
+        </constructor-arg>  
+    </bean>  
+	<!-- 类型转换器 -->  
+	<bean id="emailMessageConverter" class="hxk.convert.EmailMessageConverter"/>  
+	 <!-- 配置JMS模版 -->
+    <bean id="convertJmsTemplate" class="org.springframework.jms.core.JmsTemplate">
+        <property name="connectionFactory" ref="connectionFactory"/>
+    	<!-- <property name="messageConverter" ref="emailMessageConverter"/>   -->
+    </bean>
+	<!--  以下最消息监听机制最简单的配置方式,使用MessageListener来监听信息.. -->
+	<bean id="convertLister" class="hxk.convert.EmailMessageListener"></bean>
+	<!-- 消息监听容器 -->  
+	<bean id="convertJmsContainer"  class="org.springframework.jms.listener.DefaultMessageListenerContainer">  
+	    <property name="connectionFactory" ref="connectionFactory" />  
+	    <property name="destination" ref="convertDestination" />  
+	    <property name="messageListener" ref="convertLister" />  
+	</bean>  
+	
+	
+	
+	
+	
+	
+	
+	
+	 <!--发送消息的主题目的地，一对多的-->  
+	<bean id="topicDestination" class="org.apache.activemq.command.ActiveMQTopic">  
+   	 <constructor-arg value="topic"/>  
+	</bean>
+</beans>
